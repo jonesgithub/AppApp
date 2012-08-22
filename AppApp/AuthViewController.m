@@ -29,7 +29,13 @@
 #import "ANAppDelegate.h"
 
 @implementation AuthViewController
+
 @synthesize authWebView;
+
++ (AuthViewController *)newAuthController
+{
+    return [[AuthViewController alloc] initWithNibName:@"AuthViewController" bundle:nil];
+}
 
 - (id)init
 {

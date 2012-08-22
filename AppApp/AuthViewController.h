@@ -29,6 +29,8 @@
 
 @property (nonatomic, retain) IBOutlet UIWebView *authWebView;
 
++ (AuthViewController *)newAuthController;
+
 -(IBAction)dismissAuthenticationViewController:(id)sender;
 
 @end

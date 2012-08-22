@@ -92,7 +92,7 @@ static ANAppDelegate *sharedInstance = nil;
     // probably should move back to calling Safari. <-- disagree, this looks fine. -- jedi
     if (![[ANAPICall sharedAppAPI] hasAccessToken] || ![[ANAPICall sharedAppAPI] isAccessTokenValid])
     {
-        AuthViewController *authView = [[AuthViewController alloc] init];
+        AuthViewController *authView = [AuthViewController newAuthController];
         [self.window.rootViewController presentModalViewController:authView animated:YES];
     }
     
