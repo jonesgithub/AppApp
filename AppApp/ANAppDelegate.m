@@ -28,10 +28,16 @@
 #import "MFSideMenuManager.h"
 #import "ANSideMenuController.h"
 #import "ANAPICall.h"
+#import <QuartzCore/QuartzCore.h>
+#import "PocketAPI.h"
+#import "MKInfoPanel.h"
+#import "TestFlight.h"
+
+#if ENABLEPNS
 #import "RRDeviceMetadata.h"
 #import "UIDevice+IdentifierAddition.h"
 #import "RRConstants.h"
-#import <QuartzCore/QuartzCore.h>
+#endif
 
 @implementation ANAppDelegate
 
@@ -47,6 +53,7 @@ static ANAppDelegate *sharedInstance = nil;
 {
     self = [super init];
     sharedInstance = self;
+    [ANAPICall sharedAppAPI].timeout = 60;
     [NSURLCache setSharedURLCache:[self cacheInstance]];
     return self;
 }
@@ -70,6 +77,7 @@ static ANAppDelegate *sharedInstance = nil;
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
 {
     [TestFlight takeOff:@"c2a440bf3e4d6e2cb3a8267e89c71dc0_MTIwMjEwMjAxMi0wOC0xMCAyMTo0NjoyMC41MTQwODc"];
+    [[PocketAPI sharedAPI] setAPIKey:kPocketAPIKey];
     
     self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
     
@@ -88,14 +96,16 @@ static ANAppDelegate *sharedInstance = nil;
         NSLog(@"bacon");
     }
     
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(didAuthenticate:) name:@"DidAuthenticate" object:nil];
     // if we don't have an access token or it's not a valid token, display auth.
     // probably should move back to calling Safari. <-- disagree, this looks fine. -- jedi
-    if (![[ANAPICall sharedAppAPI] hasAccessToken] || ![[ANAPICall sharedAppAPI] isAccessTokenValid])
+    if (![[ANAPICall sharedAppAPI] hasAccessToken])
     {
         AuthViewController *authView = [AuthViewController newAuthController];
         [self.window.rootViewController presentModalViewController:authView animated:YES];
     }
-    
+ 
+#if ENABLEPNS
 #ifdef DEBUG
     NSString *key = PMB_DEBUG_API_KEY;
     NSString *secret = PMB_DEBUG_API_SECRET;
@@ -105,7 +115,8 @@ static ANAppDelegate *sharedInstance = nil;
 #endif
     pmbConnector = [[RRDefaultPlatformConnector alloc] initWithApiKey:key withApiSecret:secret];
     pmbConnector.delegate = self;
-    
+#endif
+        
     [self _setupGlobalStyling];
     
     return YES;
@@ -116,6 +127,7 @@ static ANAppDelegate *sharedInstance = nil;
 {
     // Set up navigation bar bg
     [[UINavigationBar appearance] setBackgroundImage:[UIImage imageNamed:@"navbarBg"] forBarMetrics:UIBarMetricsDefault];
+    [[UIToolbar appearance] setBackgroundImage:[UIImage imageNamed:@"toolbarBg"] forToolbarPosition:UIToolbarPositionAny barMetrics:UIBarMetricsDefault];
     
     // Set up navigation title
     [[UINavigationBar appearance] setTitleTextAttributes:@{UITextAttributeFont:[UIFont fontWithName:@"Ubuntu-Medium" size:20.0f]}];
@@ -151,6 +163,13 @@ static ANAppDelegate *sharedInstance = nil;
     return YES;
 }
 
+- (void)didAuthenticate:(NSNotification *)notification
+{
+    if ([[ANAPICall sharedAppAPI] hasAccessToken]) {
+        [self registerForRemoteNotifications];
+    }
+}
+
 - (void)registerForRemoteNotifications
 {
     [[UIApplication sharedApplication] registerForRemoteNotificationTypes:(UIRemoteNotificationTypeSound |
@@ -161,6 +180,7 @@ static ANAppDelegate *sharedInstance = nil;
 
 - (void)registerDevice:(NSString *)deviceToken
 {
+#if ENABLEPNS
     NSString *deviceId = [[UIDevice currentDevice] uniqueDeviceIdentifier];
     
     RRDeviceMetadata *metadata = [[RRDeviceMetadata alloc] initWithDeviceToken:deviceToken withDeviceId:deviceId];
@@ -171,7 +191,8 @@ static ANAppDelegate *sharedInstance = nil;
     metadata.tags = [NSDictionary dictionary];
     
     [pmbConnector asyncRegisterDevice:metadata];
-    
+    [pmbConnector asyncAssociateUser:[[ANAPICall sharedAppAPI] userID] withDeviceId:metadata.deviceId andAccessToken:[[ANAPICall sharedAppAPI] accessToken]];
+#endif
 }
 
 - (void)application:(UIApplication *)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)aDeviceToken
@@ -192,6 +213,28 @@ static ANAppDelegate *sharedInstance = nil;
 #endif
 }
 
+- (void)application:(UIApplication *)application didReceiveRemoteNotification:(NSDictionary *)userInfo
+{
+    NSLog(@"didReceiveRemoteNotification");
+    NSString *message = nil;
+    
+    id aps = [userInfo objectForKey:@"aps"];
+    if ([aps isKindOfClass:[NSDictionary class]]) {
+        message = (NSString *)[(NSDictionary *)aps objectForKey:@"alert"];
+    }
+    
+    NSString *adnPostId = (NSString *)[userInfo objectForKey:@"adnPostId"]; // Can use this later for deep linking
+#pragma unused(adnPostId)
+    
+    if (message) {
+        [MKInfoPanel showPanelInView:self.window.rootViewController.view
+                                type:MKInfoPanelTypeInfo
+                               title:[NSString stringWithFormat:NSLocalizedString(@"New Mention", @"")]
+                            subtitle:message hideAfter:6.0f];
+    }
+}
+
+#if ENABLEPNS
 - (void)didRegistrationFail:(RRDeviceMetadata *)_metadata withError:(NSError *)_error
 {
 #ifdef DEBUG
@@ -205,6 +248,7 @@ static ANAppDelegate *sharedInstance = nil;
     // NSLog(@"didRegistrationFinish:");
 #endif
 }
+#endif
 
 - (void)applicationWillResignActive:(UIApplication *)application
 {
@@ -227,7 +271,10 @@ static ANAppDelegate *sharedInstance = nil;
 
 - (void)applicationDidBecomeActive:(UIApplication *)application
 {
-    [self registerForRemoteNotifications];
+    [[UIApplication sharedApplication] setApplicationIconBadgeNumber:0];
+    if ([[ANAPICall sharedAppAPI] hasAccessToken]) {
+        [self registerForRemoteNotifications];
+    }
 }
 
 - (void)applicationWillTerminate:(UIApplication *)application

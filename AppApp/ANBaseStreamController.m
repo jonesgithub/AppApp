@@ -23,6 +23,7 @@
  DEALINGS IN THE SOFTWARE.
 */
 
+#import <QuartzCore/QuartzCore.h>
 #import "ANBaseStreamController.h"
 #import "ANPostStatusViewController.h"
 #import "ANStreamFooterView.h"
@@ -35,6 +36,11 @@
 #import "NSObject+SDExtensions.h"
 #import "NSDictionary+SDExtensions.h"
 //#import "NSDate+Helper.h"
+
+#import "ANReadLaterManager.h"
+#import "ANReadLaterAuthViewController.h"
+#import "MKInfoPanel.h"
+#import "TSMiniWebBrowser.h"
 
 
 @interface ANBaseStreamController ()
@@ -86,30 +92,33 @@
         self.currentToolbarView = [[UIView alloc] initWithFrame:CGRectZero];
         self.currentToolbarView.backgroundColor = [UIColor colorWithHue:0.574 saturation:0.036 brightness:0.984 alpha:1];
         
-        UIImageView *background = [[UIImageView alloc] initWithImage:[UIImage imageNamed:@"actionbar_separator.png"]];
-        background.frame = CGRectMake(0,0,260,40);
+        UIImageView *background = [[UIImageView alloc] initWithImage:[UIImage imageNamed:@"Action_Bar_Separator.png"]];
+        background.frame = CGRectMake(0,0,258,61);
         
-        UIImage *btnReplyImg = [UIImage imageNamed:@"actionBar-Reply.png"];
+        UIImage *btnReplyImg = [UIImage imageNamed:@"Action_Bar_Reply_Active.png"];
         UIButton *btnReply = [UIButton buttonWithType:UIButtonTypeCustom];
         [btnReply addTarget:self action:@selector(replyToFromStream:) forControlEvents:UIControlEventTouchUpInside];
         [btnReply setImage:btnReplyImg forState:UIControlStateNormal];
         [btnReply setImage:btnReplyImg forState:UIControlStateHighlighted];
-        [btnReply setFrame:CGRectMake(45,13,24,16)];
+        [btnReply setFrame:CGRectMake(10,10,40,40)];
      
-        UIImage *btnRepostImg = [UIImage imageNamed:@"actionBar-Repost.png"];
+        UIImage *btnRepostImg = [UIImage imageNamed:@"Action_Bar_Repost_Active.png"];
         UIButton *btnRepost = [UIButton buttonWithType:UIButtonTypeCustom];
         [btnRepost addTarget:self action:@selector(repostFromStream:) forControlEvents:UIControlEventTouchUpInside];
         [btnRepost setImage:btnRepostImg forState:UIControlStateNormal];
         [btnRepost setImage:btnRepostImg forState:UIControlStateHighlighted];
         
-        [btnRepost setFrame:CGRectMake(105,13,25,19)];
+        [btnRepost setFrame:CGRectMake(60,10,40,40)];
 
-        UIImage *btnConversationImg = [UIImage imageNamed:@"actionBar-Conversation.png"];
+        UIImage *btnConversationImg = [UIImage imageNamed:@"Action_Bar_Conversation_Active.png"];
+        UIImage *btnConversationImgDisabled = [UIImage imageNamed:@"Action_Bar_Conversation_Disabled.png"];
+
         self.btnConversation = [UIButton buttonWithType:UIButtonTypeCustom];
         [self.btnConversation addTarget:self action:@selector(showConversation:) forControlEvents:UIControlEventTouchUpInside];
         [self.btnConversation setImage:btnConversationImg forState:UIControlStateNormal];
         [self.btnConversation setImage:btnConversationImg forState:UIControlStateHighlighted];
-        [self.btnConversation setFrame:CGRectMake(175,13,24,22)];
+        [self.btnConversation setImage:btnConversationImgDisabled forState:UIControlStateDisabled];
+        [self.btnConversation setFrame:CGRectMake(110,10,40,40)];
         
         [self.currentToolbarView addSubview:background];
         [self.currentToolbarView addSubview:btnReply];
@@ -153,9 +162,27 @@
     [self presentModalViewController:postView animated:YES];
 }
 
+- (void)addOverlayToUserButton:(UIButton*)button
+{
+    CAGradientLayer *gradientLayer = [CAGradientLayer layer];
+    gradientLayer.frame = button.layer.bounds;
+    gradientLayer.colors = @[ (id)[UIColor colorWithWhite:0.3f alpha:0.4f].CGColor, (id)[UIColor colorWithWhite:0.0f alpha:0.4f].CGColor ];
+    gradientLayer.locations = @[ @0, @0.5 ];
+    gradientLayer.name = @"overlayGradient";
+    [button.layer addSublayer:gradientLayer];
+}
+
+- (void)removeLayerFromView:(UIView*)view
+{
+    CAGradientLayer *gradientLayer = [[view.layer.sublayers filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"name == %@", @"overlayGradient"]] objectAtIndex:0];
+    [gradientLayer removeFromSuperlayer];
+}
+
 - (void)showUserAction:(id)sender
 {
-    NSUInteger index = [(UIControl *)sender tag];
+    UIControl *control = (UIControl *)sender;
+    [self removeLayerFromView:control];
+    NSUInteger index = [control tag];
     NSDictionary *postDict = [streamData objectAtIndex:index];
     NSDictionary *userDict = [postDict objectForKey:@"user"];
     ANUserViewController *userController = [[ANUserViewController alloc] initWithUserDictionary:userDict];
@@ -187,7 +214,7 @@
     
     if ((currentSelection) && (currentSelection.row == indexPath.row))
     {
-        height += 40;
+        height += 61;
     }
 
     return height;
@@ -212,21 +239,61 @@
             {
                 NSString *userID = value;
                 [[ANAPICall sharedAppAPI] getUser:userID uiCompletionBlock:^(id dataObject, NSError *error) {
-                    NSDictionary *userData = dataObject;
-                    ANUserViewController* userViewController = [[ANUserViewController alloc] initWithUserDictionary:userData];
-                    [self.navigationController pushViewController:userViewController animated:YES];
+                    if (![[ANAPICall sharedAppAPI] handledError:error dataObject:dataObject view:self.view])
+                    {
+                        NSDictionary *userData = dataObject;
+                        ANUserViewController* userViewController = [[ANUserViewController alloc] initWithUserDictionary:userData];
+                        [self.navigationController pushViewController:userViewController animated:YES];
+                    }
                 }];
             }
             else
             if ([type isEqualToString:@"link"])
             {
-                NSURL *url = [NSURL URLWithString:value];
+                /*NSURL *url = [NSURL URLWithString:value];
                 if ([[UIApplication sharedApplication] canOpenURL:url])
-                    [[UIApplication sharedApplication] openURL:url];
+                    [[UIApplication sharedApplication] openURL:url];*/
+                TSMiniWebBrowser *webBrowser = [[TSMiniWebBrowser alloc] initWithUrl:[NSURL URLWithString:@"http://indiedevstories.com"]];
+                //    webBrowser.delegate = self;
+                //    webBrowser.showURLStringOnActionSheetTitle = YES;
+                //    webBrowser.showPageTitleOnTitleBar = YES;
+                    webBrowser.showActionButton = YES;
+                    webBrowser.showReloadButton = YES;
+                //    [webBrowser setFixedTitleBarText:@"Test Title Text"]; // This has priority over "showPageTitleOnTitleBar".
+                webBrowser.mode = TSMiniWebBrowserModeNavigation;
+                
+                //webBrowser.barStyle = UIBarStyleBlack;
+                
+                if (webBrowser.mode == TSMiniWebBrowserModeModal)
+                {
+                    webBrowser.modalDismissButtonTitle = @"Home";
+                    [self presentModalViewController:webBrowser animated:YES];
+                }
+                else
+                if(webBrowser.mode == TSMiniWebBrowserModeNavigation)
+                {
+                    [self.navigationController pushViewController:webBrowser animated:YES];
+                }
+
             }
             return result;
         };
-    }    
+        
+        __weak typeof(self) blockSelf = self;
+        cell.statusTextLabel.longPressHandler = ^BOOL (NSString *type, NSString *value) {
+            if([type isEqualToString:@"link"])
+            {
+                UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:value delegate:self cancelButtonTitle:NSLocalizedString(@"Cancel", @"") destructiveButtonTitle:nil otherButtonTitles:NSLocalizedString(@"Send to Pocket", @""), NSLocalizedString(@"Send to Instapaper", @""), nil];
+                [sheet showInView:blockSelf.view];
+            }
+            else
+            {
+                // TODO: Craft a URL pointing to the post on alpha.app.net
+                //       open the action sheet above with this URL. @jtregunna
+            }
+            return YES;
+        };
+    }
 
     NSDictionary *statusDict = [streamData objectAtIndex:[indexPath row]];
     
@@ -236,6 +303,8 @@
     cell.showUserButton.tag = indexPath.row;
     // END JANKY.
 
+    [cell.showUserButton addTarget:self action:@selector(addOverlayToUserButton:) forControlEvents:UIControlEventTouchDown];
+    [cell.showUserButton addTarget:self action:@selector(removeLayerFromView:) forControlEvents:UIControlEventTouchDragOutside];
     [cell.showUserButton addTarget:self action:@selector(showUserAction:) forControlEvents:UIControlEventTouchUpInside];
     
     return cell;
@@ -297,6 +366,49 @@
         [self.tableView endUpdates];
     }
     [super scrollViewDidScroll:scrollView];
+}
+
+#pragma mark - Action sheet delegate
+
+- (void)actionSheet:(UIActionSheet *)actionSheet clickedButtonAtIndex:(NSInteger)buttonIndex
+{
+    ANReadLaterManager *manager = [[ANReadLaterManager alloc] initWithDelegate:self];
+
+    switch(buttonIndex)
+    {
+        case 0: // Pocket
+            [manager saveURL:[NSURL URLWithString:actionSheet.title] serviceType:kANReadLaterTypePocket];
+            break;
+        case 1:
+            [manager saveURL:[NSURL URLWithString:actionSheet.title] serviceType:kANReadLaterTypeInstapaper];
+            break;
+    }
+}
+
+#pragma mark - Read Later delegate
+
+- (void)readLater:(ANReadLaterManager *)manager serviceType:(ANReadLaterType)serviceType didLoginSuccessfullyWithURL:(NSURL *)url
+{
+    [manager saveURL:url serviceType:serviceType];
+}
+
+- (void)readLater:(ANReadLaterManager *)manager serviceType:(ANReadLaterType)serviceType savedURL:(NSURL *)url
+{
+    NSString* message = [NSString stringWithFormat:@"Successfully saved URL to %@", [ANReadLaterManager serviceNameForType:serviceType]];
+    [MKInfoPanel showPanelInView:self.view type:MKInfoPanelTypeInfo title:NSLocalizedString(@"Saved URL", @"") subtitle:NSLocalizedString(message, @"") hideAfter:2.5f];
+}
+
+- (void)readLater:(ANReadLaterManager *)manager serviceType:(ANReadLaterType)serviceType failedToSaveURL:(NSURL *)url needsToRelogin:(BOOL)needsToRelogin error:(NSError *)error
+{
+    if(needsToRelogin)
+    {
+        ANReadLaterAuthViewController* vc = [[ANReadLaterAuthViewController alloc] initWithServiceType:serviceType failedURL:url manager:manager];
+        [self presentModalViewController:vc animated:YES];
+    }
+    else
+    {
+        [MKInfoPanel showPanelInView:self.view type:MKInfoPanelTypeError title:NSLocalizedString(@"Error Saving URL", @"") subtitle:[error localizedDescription] hideAfter:2.5f];
+    }
 }
 
 #pragma mark - Gesture Handling

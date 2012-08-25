@@ -28,6 +28,7 @@
 #import "NSDictionary+SDExtensions.h"
 #import "SVProgressHUD.h"
 #import "UIAlertView+SDExtensions.h"
+#import "MKInfoPanel.h"
 
 @interface ANPostStatusViewController ()
 
@@ -187,6 +188,8 @@
         {
             [[ANAPICall sharedAppAPI] makePostWithText:postTextView.text replyToPostID:replyToID uiCompletionBlock:^(id dataObject, NSError *error) {
                 SDLog(@"post response = %@", dataObject);
+                if (![[ANAPICall sharedAppAPI] handledError:error dataObject:dataObject view:self.view])
+                    [self dismissPostStatusViewController:nil];
                 [SVProgressHUD dismiss];
             }];
         }
@@ -194,6 +197,8 @@
         {
             [[ANAPICall sharedAppAPI] makePostWithText:postTextView.text uiCompletionBlock:^(id dataObject, NSError *error) {
                 SDLog(@"post response = %@", dataObject);
+                if (![[ANAPICall sharedAppAPI] handledError:error dataObject:dataObject view:self.view])
+                    [self dismissPostStatusViewController:nil];
                 [SVProgressHUD dismiss];
             }];
         }
@@ -221,11 +226,14 @@
                     postTextView.text = newPostText;
 
                     [self internalPerformADNPost];
-                    [self dismissPostStatusViewController:nil];
                 }
                 else
                 {
-                    [UIAlertView alertViewWithTitle:@"Image upload failed" message:@"Sorry, it appears Imgur is down for maintenance or overloaded."];
+                    [MKInfoPanel showPanelInView:self.view
+                                            type:MKInfoPanelTypeError
+                                           title:@"Image upload failed"
+                                        subtitle:@"Imgur may be down for maintenance or overloaded."
+                                       hideAfter:4];
                 }
                 [SVProgressHUD dismiss];
             }];
@@ -234,7 +242,6 @@
         {
             [SVProgressHUD showWithStatus:@"Posting..." maskType:SVProgressHUDMaskTypeBlack];
             [self internalPerformADNPost];
-            [self dismissPostStatusViewController:nil];
         }
     }
 }
@@ -273,7 +280,21 @@
 
 - (IBAction)hashAction:(id)sender
 {
-    postTextView.text = [NSString stringWithFormat:@"%@#", postTextView.text];
+    NSRange inputRange = [postTextView selectedRange];
+    NSMutableString *text = [postTextView.text mutableCopy];
+    [text insertString:@"#" atIndex:inputRange.location];
+    postTextView.text = text;
+    inputRange.location += 1;
+    inputRange.length = 0;
+    [postTextView setSelectedRange:inputRange];
+}
+
+- (IBAction)mentionAction:(id)sender
+{
+    NSRange inputRange = [postTextView selectedRange];
+    NSMutableString *text = [postTextView.text mutableCopy];
+    [text insertString:@"@" atIndex:inputRange.location];
+    postTextView.text = text;
 }
 
 - (IBAction)clearPhotoAction:(id)sender
@@ -336,7 +357,7 @@
 #pragma mark - UIKeyboard handling
 
 - (void) applyKeyboardSizeChange:(NSNotification *)notification{
-    /*NSDictionary *dict = [notification userInfo];
+    NSDictionary *dict = [notification userInfo];
     NSNumber *animationDuration = [dict valueForKey:UIKeyboardAnimationDurationUserInfoKey];
     NSNumber *curve = [dict valueForKey:UIKeyboardAnimationCurveUserInfoKey];
     
@@ -356,7 +377,7 @@
                      animations:^{
                          aViewToResize.frame = newFrame;
                      }
-                     completion:NULL];*/
+                     completion:NULL];
 }
 
 
